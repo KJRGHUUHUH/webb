@@ -1,98 +1,132 @@
 const express = require('express');
 const cors = require('cors');
-// Use 'axios' or 'node-fetch' to make the real API call to Cashfree
-const axios = require('axios'); 
+const axios = require('axios');
 
 const app = express();
-// --- FIX: Use the port from the environment variables for deployment ---
 const port = process.env.PORT || 4000;
 
-// --- !!! IMPORTANT: READ KEYS FROM ENVIRONMENT VARIABLES !!! ---
-// We will set these variables in our hosting platform, not here.
+// Environment variables for Cashfree
 const CASHFREE_CLIENT_ID = process.env.CASHFREE_CLIENT_ID;
 const CASHFREE_CLIENT_SECRET = process.env.CASHFREE_CLIENT_SECRET;
+const NODE_ENV = process.env.NODE_ENV || 'development'; // 'development' or 'production'
 
-// Use a variable for the API URL so we can switch between test and live
-const CASHFREE_API_URL = process.env.NODE_ENV === 'production'
-    ? 'https://api.cashfree.com/pg/orders'         // Production URL
-    : 'https://sandbox.cashfree.com/pg/orders'; // Sandbox URL
+// Determine Cashfree API URL based on environment
+const CASHFREE_API_URL = NODE_ENV === 'production'
+  ? 'https://api.cashfree.com/pg' // Production URL
+  : 'https://sandbox.cashfree.com/pg'; // Sandbox (Test) URL
 
-// --- Configure CORS for your deployed frontend ---
-// Replace 'https://your-frontend-url.com' with your actual frontend's URL
+// Define allowed origins
+const allowedOrigins = [
+  'http://localhost:5500', // For local dev with VS Code Live Server
+  'http://127.0.0.1:5500', // Alias for Live Server
+  'http://localhost:3000', // For npx serve
+  'http://localhost:4000', // In case backend is also on 4000
+  'file://' // Allow testing from local files (though fetch may be blocked by browser)
+  // Add your deployed frontend URL here, e.g., 'https://your-frontend.netlify.app'
+];
+
+// CORS configuration
 const corsOptions = {
-    origin: process.env.NODE_ENV === 'production'
-        ? 'https://your-frontend-url.com' // e.g., 'https://my-payment-page.netlify.app'
-        : 'http://localhost:5500'       // Allow local testing (or 127.0.0.1)
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      // Origin is in the allowed list
+      callback(null, true);
+    } else {
+      // Origin is not allowed
+      console.warn(`CORS: Blocked origin - ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  optionsSuccessStatus: 200 // For legacy browser support
 };
 
+// Use CORS middleware
 app.use(cors(corsOptions));
-app.use(express.json());
 
-// --- Removed the duplicate, hardcoded keys that were here ---
-
-/**
- * This endpoint simulates creating an order with Cashfree.
- * In a real app, this is where you securely call the Cashfree API.
- */
-app.post('/create-payment-session', async (req, res) => {
-    console.log('Request received to create payment session...');
-
-    // --- !!! THIS IS THE REAL BACKEND LOGIC YOU NEED TO BUILD !!! ---
-    // 1. Define order details (amount, currency, customer info, etc.)
-    const orderDetails = {
-        order_id: `order_${Date.now()}`,
-        order_amount: 99.00,
-        order_currency: "INR", // Change as needed
-        customer_details: {
-            customer_id: `customer_${Date.now()}`,
-            customer_email: "customer@example.com",
-            customer_phone: "9876543210"
-        },
-        order_meta: {
-            return_url: "https://your-website.com/return?order_id={order_id}"
-        }
-    };
-
-    try {
-        // 2. Make the secure API call to Cashfree
-        
-        // --- REAL API CALL (Now using environment variables) ---
-        const response = await axios.post(
-            CASHFREE_API_URL,
-            orderDetails,
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-client-id': CASHFREE_CLIENT_ID,
-                    'x-client-secret': CASHFREE_CLIENT_SECRET,
-                    'x-api-version': '2022-09-01' // Use the API version you are targeting
-                }
-            }
-        );
-        
-        const data = response.data;
-        
-        // 3. Send the REAL payment_session_id to the frontend
-        console.log("Real session created:", data.payment_session_id);
-        res.json({ paymentSessionId: data.payment_session_id });
-        
-        // --- MOCK RESPONSE (You should remove this) ---
-        /*
-        console.log("Simulating backend API call...");
-        const mockPaymentSessionId = "session_mock_" + Date.now() + "_" + Math.random().toString(36).substring(2);
-        console.log("Generated Mock Payment Session ID:", mockPaymentSessionId);
-        res.json({ paymentSessix onId: mockPaymentSessionId });
-        */
-        // --- END MOCK RESPONSE ---
-
-    } catch (error) {
-        console.error("Error creating Cashfree order:", error.response ? error.response.data : error.message);
-        res.status(500).json({ error: "Failed to create payment session" });
-    }
-    // --- !!! END OF REAL BACKEND LOGIC ---
+// Simple middleware to log requests
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
 });
 
+// Endpoint to create a payment session
+app.post('/create-payment-session', async (req, res) => {
+  console.log('Attempting to create payment session...');
+  
+  if (!CASHFREE_CLIENT_ID || !CASHFREE_CLIENT_SECRET) {
+    console.error('Missing Cashfree credentials. Check environment variables.');
+    return res.status(500).json({ error: 'Server configuration error' });
+  }
+
+  try {
+    // Generate a unique order_id (e.g., using a timestamp or UUID)
+    const orderId = `ORDER_${Date.now()}`;
+    const orderAmount = 1.00; // Example amount
+    const orderCurrency = 'INR';
+
+    console.log(`Requesting session for Order ID: ${orderId}`);
+
+    // Make the POST request to Cashfree to get an auth token
+    const authResponse = await axios.post(
+      `${CASHFREE_API_URL}/orders`,
+      {
+        order_id: orderId,
+        order_amount: orderAmount,
+        order_currency: orderCurrency,
+        customer_details: {
+          customer_id: 'CUST_123', // Replace with a real customer ID
+          customer_email: 'customer@example.com',
+          customer_phone: '9876543210'
+        },
+        order_meta: {
+          // URLs to redirect to after payment
+          return_url: 'https://your-frontend.com/return?order_id={order_id}', // Replace with your frontend URL
+        },
+        order_note: 'Test order from miracleapparels'
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-client-id': CASHFREE_CLIENT_ID,
+          'x-client-secret': CASHFREE_CLIENT_SECRET,
+          'x-api-version': '2023-08-01' // Use a current API version
+        }
+      }
+    );
+
+    // Log success and extract session ID
+    console.log('Cashfree API response received:', authResponse.data);
+    const paymentSessionId = authResponse.data.payment_session_id;
+
+    if (!paymentSessionId) {
+      console.error('Failed to get payment_session_id from Cashfree');
+      return res.status(500).json({ error: 'Failed to create payment session' });
+    }
+
+    // Send the payment_session_id back to the frontend
+    res.json({ payment_session_id: paymentSessionId });
+
+  } catch (error) {
+    // Handle errors from the Cashfree API
+    console.error('Error creating payment session:', error.response ? error.response.data : error.message);
+    res.status(500).json({
+      error: 'Failed to create payment session',
+      details: error.response ? error.response.data : error.message
+    });
+  }
+});
+
+// Root endpoint for health checks
+app.get('/', (req, res) => {
+  res.send('Payment backend is running!');
+});
+
+// Start the server
 app.listen(port, () => {
-    console.log(`http://localhost:3000`);
+  // Use '0.0.0.0' to bind to all available interfaces, which is crucial for containers
+  console.log(`Backend server running at http://localhost:${port}`);
 });
 

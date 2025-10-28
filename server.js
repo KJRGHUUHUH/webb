@@ -93,6 +93,6 @@ app.post('/create-payment-session', async (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log(`Backend server running at http://localhost:${port}`);
+    console.log(`http://localhost:3000`);
 });
 
